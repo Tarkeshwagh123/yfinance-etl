@@ -1,8 +1,8 @@
 def transform_stock_data(data):
-    print(f"columns are {data.columns}")
+    print(data.columns)
     if data is None or data.empty:
         print("No data found for the given ticker.")
-        return None  
+        return None  # or return {}, or handle as needed
 
     row = data.iloc[0]
     row_dict = row.to_dict()
@@ -15,7 +15,7 @@ def transform_stock_data(data):
         date_value = date_value.to_pydatetime()
 
     row_dict['Date'] = date_value
-    print(f"response is {row_dict}")
+    print(row_dict)
 
     transformed_data = {
         "Ticker": "",
