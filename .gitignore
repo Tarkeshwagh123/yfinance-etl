@@ -1,2 +1,5 @@
 .venv/
-interface/_pycache_/
+__pycache__/
+*.pyc
+src/**/__pycache__/
+src/**/*.pyc
