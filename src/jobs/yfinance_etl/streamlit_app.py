@@ -5,6 +5,7 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import date
+import statsmodels.api as sm
 
 def fetch_data(tickers, start, end):
     df = yf.download(tickers, start=start, end=end, auto_adjust=True)
@@ -37,7 +38,27 @@ def calculate_metrics(data):
         return_5y = (data.iloc[-1] / data.iloc[-five_years]) - 1
     else:
         return_5y = np.nan
-        
+
+    #alpha, beta, r^2
+    benchmark_ticker = 'SPY'
+    benchmark_data = fetch_data([benchmark_ticker], data.index[0], data.index[-1])
+    benchmark_returns = benchmark_data.pct_change().dropna()
+
+    returns = returns.loc[benchmark_returns.index.intersection(returns.index)]
+    benchmark_returns = benchmark_returns.loc[returns.index]
+
+    alphas = {}
+    betas = {}
+    r_squareds = {}
+
+    for col in returns.columns:
+        X = sm.add_constant(benchmark_returns.values)
+        y = returns[col].values
+        model = sm.OLS(y, X).fit()
+        alphas[col] = model.params[0] * 252
+        betas[col] = model.params[1]
+        r_squareds[col] = model.rsquared
+
     summary = pd.DataFrame({
         "Historical Return 1Y": historical_return,
         "3Y return": return_3y,
@@ -45,7 +66,10 @@ def calculate_metrics(data):
         "YTD return": ytd_return,
         "Standard Deviation (Volatility)": volatility,
         "Sharpe ratio (Risk Adjusted Return)": sharpe_ratio,
-        "Maximum drawdown": max_drawdown
+        "Maximum drawdown": max_drawdown,
+        "Alpha": pd.Series(alphas),
+        "Beta": pd.Series(betas),
+        "R-squared": pd.Series(r_squareds)
     })
     return summary
 
