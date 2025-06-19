@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from datetime import date
 
+from yfinance import tickers
+
 def fetch_data(tickers, start, end):
     df = yf.download(tickers, start=start, end=end, auto_adjust=True)
     if isinstance(df.columns, pd.MultiIndex):
@@ -17,14 +19,50 @@ def fetch_data(tickers, start, end):
         data = data.to_frame()
     return data
 
-def calculate_metrics(data):
+def calculate_metrics(data, tickers, start_date, end_date):
+    global dividends
     returns = data.pct_change().dropna()
     historical_return = returns.mean() * 252
     volatility = returns.std() * np.sqrt(252)
     sharpe_ratio = historical_return / volatility
     ytd_return = (data.iloc[-1] / data.iloc[0]) - 1
-    max_drawdown = (data / data.cummax()).min() - 1
-    
+    running_max = data.cummax()
+    drawdown = (data - running_max) / running_max
+    max_drawdown = drawdown.min()
+
+    risk_free_rate = 0.01
+    periods_per_year = 252
+    daily_rf = risk_free_rate / periods_per_year
+    excess_returns = returns - daily_rf
+    downside_returns = excess_returns[excess_returns < 0]
+    downside_deviation = np.std(downside_returns)
+    mean_excess_return = excess_returns.mean()
+    sortino_ratio = mean_excess_return / downside_deviation
+
+    dividend_yields = {}
+    tickers = [ticker.strip().upper() for ticker in tickers.split(',') if ticker.strip()]
+    # start_date = pd.to_datetime(start_date).tz_localize(None)
+    # end_date = pd.to_datetime(end_date).tz_localize(None)
+    for ticker in tickers:
+        etf = yf.Ticker(ticker)
+        # Get historical dividends
+        dividends = etf.dividends
+        dividends.index = dividends.index.tz_localize(None)
+        dividends = dividends.loc[start_date:end_date]
+        valid_dividends = dividends[dividends.index.isin(data.index)]
+        valid_prices = data[ticker][data.index.isin(dividends.index)]
+
+        # Calculate annual dividend and yield
+        total_dividend = valid_dividends.sum()
+        latest_price = data[ticker].iloc[-1]
+        dividend_yield = (total_dividend / latest_price) * 100
+        dividend_yields[ticker] = dividend_yield
+
+    for ticker in tickers:
+        fund = yf.Ticker(ticker)
+        expense_ratio = fund.info.get("expenseRatio", 0)
+        expense_ratio = expense_ratio * 100
+
     three_years = 252 * 3
     five_years = 252 * 5
 
@@ -37,6 +75,8 @@ def calculate_metrics(data):
         return_5y = (data.iloc[-1] / data.iloc[-five_years]) - 1
     else:
         return_5y = np.nan
+
+
         
     summary = pd.DataFrame({
         "Historical Return 1Y": historical_return,
@@ -45,7 +85,10 @@ def calculate_metrics(data):
         "YTD return": ytd_return,
         "Standard Deviation (Volatility)": volatility,
         "Sharpe ratio (Risk Adjusted Return)": sharpe_ratio,
-        "Maximum drawdown": max_drawdown
+        "Maximum drawdown": max_drawdown,
+        "Sortino Ratio": sortino_ratio,
+        "Dividend Yield (%)": dividend_yields,
+        "Expense Ratio (%)": expense_ratio
     })
     return summary
 
@@ -91,8 +134,12 @@ def plot_graphs(data, summary, tickers):
 
     
     st.subheader("Maximum Drawdown per Fund")
-    max_dd = drawdown_df.min()
-    st.bar_chart(max_dd)
+    # max_dd = drawdown_df.min()
+    st.bar_chart(drawdown_df)
+
+    st.subheader("Dividend Yield (%)")
+    yields = summary["Dividend Yield (%)"].sort_values(ascending=False)
+    st.bar_chart(yields)
 
 def main():
     st.title("Stocks Comparison Matrix & Analytics Dashboard")
@@ -105,9 +152,22 @@ def main():
         data = fetch_data(ticker_list, start_date, end_date)
         if not data.empty:
             st.write("Raw Price Data", data)
-            summary = calculate_metrics(data)
+            summary = calculate_metrics(data, tickers, start_date, end_date)
             st.subheader("Comparison Matrix")
-            st.dataframe(summary.style.format("{:.2%}"))
+            # st.dataframe(summary.style.format("{:.2%}"))
+            format_dict = {
+                "Historical Return 1Y": "{:.2%}",
+                "3Y return": "{:.2%}",
+                "5Y return": "{:.2%}",
+                "YTD return": "{:.2%}",
+                "Standard Deviation (Volatility)": "{:.2%}",
+                "Sharpe ratio (Risk Adjusted Return)": "{:.2f}",
+                "Sortino Ratio": "{:.2f}",
+                "Maximum drawdown": "{:.2%}",
+                "Dividend Yield (%)": "{:.2f}",
+                "Expense Ratio (%)":"{:.2f}" # not percent format
+            }
+            st.dataframe(summary.style.format(format_dict))
             selected = st.multiselect("Choose tickers to visualize", options=list(summary.index), default=list(summary.index))
             if selected:
                 plot_graphs(data[selected], summary.loc[selected], selected)
