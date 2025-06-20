@@ -8,18 +8,19 @@ from datetime import date
 
 from yfinance import tickers
 
-def fetch_data(tickers, start, end):
-    df = yf.download(tickers, start=start, end=end, auto_adjust=True)
+def fetch_data(tickers, start, end, benchmark="^GSPC"):
+    all_tickers = tickers + [benchmark]
+    df = yf.download(all_tickers, start=start, end=end, auto_adjust=True)
     if isinstance(df.columns, pd.MultiIndex):
         data = df['Close']
     else:
         data = df[['Close']]
-        data.columns = [tickers[0]]  
+        data.columns = [all_tickers[0]]  
     if isinstance(data, pd.Series):
         data = data.to_frame()
     return data
 
-def calculate_metrics(data, tickers, start_date, end_date):
+def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
     global dividends
     returns = data.pct_change().dropna()
     historical_return = returns.mean() * 252
@@ -29,6 +30,20 @@ def calculate_metrics(data, tickers, start_date, end_date):
     running_max = data.cummax()
     drawdown = (data - running_max) / running_max
     max_drawdown = drawdown.min()
+    
+    # Tracking Error calculation
+    tracking_errors = {}
+    if benchmark in data.columns:
+        for ticker in data.columns:
+            if ticker == benchmark:
+                continue
+            diff = returns[ticker] - returns[benchmark]
+            daily_te = np.std(diff)
+            annualized_te = daily_te * np.sqrt(252)
+            tracking_errors[ticker] = annualized_te
+    else:
+        for ticker in data.columns:
+            tracking_errors[ticker] = np.nan
 
     risk_free_rate = 0.01
     periods_per_year = 252
@@ -88,7 +103,8 @@ def calculate_metrics(data, tickers, start_date, end_date):
         "Maximum drawdown": max_drawdown,
         "Sortino Ratio": sortino_ratio,
         "Dividend Yield (%)": dividend_yields,
-        "Expense Ratio (%)": expense_ratio
+        "Expense Ratio (%)": expense_ratio,
+        "Tracking Error (%)": pd.Series(tracking_errors) * 100
     })
     return summary
 
@@ -142,6 +158,7 @@ def plot_graphs(data, summary, tickers):
     st.bar_chart(yields)
 
 def main():
+    benchmark = "^GSPC"
     st.title("Stocks Comparison Matrix & Analytics Dashboard")
     tickers = st.text_input("Enter stock tickers (comma separated):", value="SPY, QQQ, VTI, VOO")
     start_date = st.date_input("Start date", value=date(2020, 1, 1))
@@ -149,10 +166,10 @@ def main():
 
     if st.button("Fetch & Compare"):
         ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
-        data = fetch_data(ticker_list, start_date, end_date)
+        data = fetch_data(ticker_list, start_date, end_date, benchmark=benchmark)
         if not data.empty:
             st.write("Raw Price Data", data)
-            summary = calculate_metrics(data, tickers, start_date, end_date)
+            summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark)
             st.subheader("Comparison Matrix")
             # st.dataframe(summary.style.format("{:.2%}"))
             format_dict = {
