@@ -31,7 +31,7 @@ To set up the project, follow these steps:
 To run the Streamlit application, execute the following command in your terminal:
 
 ```
-$env:PYTHONPATH="d:\apps\yfinance-etl-app\src"; streamlit run  src\jobs\yfinance_etl\streamlit_app.py 
+streamlit run  src\jobs\yfinance_etl\streamlit_app.py 
 ```
 
 Once the application is running, you can enter a stock ticker symbol in the provided input field to fetch and display the stock data.
