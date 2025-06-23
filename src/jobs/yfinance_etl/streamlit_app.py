@@ -20,6 +20,51 @@ def fetch_data(tickers, start, end, benchmark="^GSPC"):
         data = data.to_frame()
     return data
 
+
+def fetch_etf_metadata(tickers, start_date, end_date):
+    sector_data = {}
+    holdings_data = {}
+    price_data = {}
+
+    for ticker in tickers:
+        etf = yf.Ticker(ticker)
+        # Sector Allocation
+        sector_weights = etf.info.get('sectorWeightings', [])
+        sectors = {list(s.keys())[0]: list(s.values())[0] * 100 for s in sector_weights} if sector_weights else {}
+        sector_data[ticker] = sectors
+
+        # Holdings (note: yfinance rarely returns this, so usually empty)
+        top_holdings = etf.info.get('topHoldings', [])
+        holdings_data[ticker] = top_holdings if top_holdings else "Not Available"
+
+        # Price data for returns
+        hist = etf.history(start=start_date, end=end_date)['Close']
+        price_data[ticker] = hist
+
+    return sector_data, holdings_data, price_data
+
+
+def show_sector_allocation(sector_data):
+    sector_df = pd.DataFrame(sector_data).fillna(0)
+    st.subheader("Sector Allocation (%)")
+    st.bar_chart(sector_df)
+
+def show_cumulative_returns(price_data):
+    returns_df = pd.DataFrame(price_data).pct_change().dropna()
+    cumulative_returns = (1 + returns_df).cumprod()
+    st.subheader("Cumulative Returns (Growth of $1)")
+    st.line_chart(cumulative_returns)
+
+def show_holdings(holdings_data):
+    st.subheader("Top Holdings")
+    for ticker, holdings in holdings_data.items():
+        st.markdown(f"**{ticker} Top Holdings:**")
+        if holdings == "Not Available":
+            st.write("Not Available")
+        else:
+            st.write(pd.DataFrame(holdings))
+
+
 def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
     global dividends
     returns = data.pct_change().dropna()
@@ -60,6 +105,7 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
     # end_date = pd.to_datetime(end_date).tz_localize(None)
     for ticker in tickers:
         etf = yf.Ticker(ticker)
+        print(etf.info.keys())
         # Get historical dividends
         dividends = etf.dividends
         dividends.index = dividends.index.tz_localize(None)
@@ -192,6 +238,11 @@ def main():
                 st.warning("Please select at least one ticker to visualize.")
         else:
             st.error("No data found for the given tickers.")
+            
+        sector_data, holdings_data, price_data = fetch_etf_metadata(ticker_list, start_date, end_date)
+        show_sector_allocation(sector_data)
+        show_cumulative_returns(price_data)
+        show_holdings(holdings_data)
 
 if __name__ == "__main__":
     main()
