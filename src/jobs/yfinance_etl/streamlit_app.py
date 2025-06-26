@@ -9,6 +9,9 @@ from PIL import Image
 import os
 import statsmodels.api as sm
 import time
+import plotly.figure_factory as ff
+import requests
+from textblob import TextBlob
 
 from yfinance import tickers
 
@@ -197,19 +200,132 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
     })
     return summary
 
-def plot_graphs(data, summary, selected, start_date, end_date):
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "Price History", 
-        "Key Metrics Bar Chart", 
-        "Risk vs Return Scatter", 
-        "Drawdowns", 
-        "Sector Allocation", 
-        "Cumulative Returns"
+def fetch_news(ticker, api_key, max_articles=5):
+    url = f"https://newsapi.org/v2/everything?q={ticker}&sortBy=publishedAt&language=en&apiKey={api_key}"
+    response = requests.get(url)
+    articles = []
+    if response.status_code == 200:
+        data = response.json()
+        for article in data.get("articles", [])[:max_articles]:
+            articles.append({
+                "title": article["title"],
+                "url": article["url"],
+                "description": article["description"] or "",
+                "publishedAt": article["publishedAt"]
+            })
+    return articles
+
+def analyze_sentiment(text):
+    blob = TextBlob(text)
+    return blob.sentiment.polarity  # -1 (negative) to 1 (positive)
+
+def plot_graphs(data, summary, selected, start_date, end_date, sector_data):
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "📈 Price", 
+        "📊 Metrics", 
+        "⚖️ Risk/Return", 
+        "📉 Drawdown", 
+        "🏢 Sectors", 
+        "💹 Returns", 
+        "📰 News/Sentiment"
     ])
 
     with tab1:
-        st.subheader("Line Chart: Price History")
-        st.line_chart(data[selected])
+        st.subheader("Price Chart: Choose Visualization Type")
+        chart_type = st.radio(
+            "Select chart type:",
+            ["Line (with SMA/EMA & Trend)", "Candlestick", "Area"],
+            horizontal=True,
+            key="chart_type"
+        )
+
+        import plotly.graph_objects as go
+
+        for ticker in selected:
+            df = data[[ticker]].copy()
+            df['SMA50'] = df[ticker].rolling(window=50).mean()
+            df['EMA20'] = df[ticker].ewm(span=20, adjust=False).mean()
+            df['Uptrend'] = df[ticker] > df[ticker].shift(1)
+            df['TrendIcon'] = df['Uptrend'].apply(lambda x: "⬆️" if x else "⬇️")
+
+            if chart_type == "Line (with SMA/EMA & Trend)":
+                with st.spinner("Loading Line chart..."):
+                    time.sleep(1)
+                    fig = go.Figure()
+                    # Price line
+                    fig.add_trace(go.Scatter(
+                        x=df.index, y=df[ticker], mode='lines', name=f"{ticker} Price",
+                        line=dict(color="#31333F", width=2)
+                    ))
+                    # SMA
+                    fig.add_trace(go.Scatter(
+                        x=df.index, y=df['SMA50'], mode='lines', name="SMA 50",
+                        line=dict(color="#F28C3A", width=2, dash='dash')
+                    ))
+                    # EMA
+                    fig.add_trace(go.Scatter(
+                        x=df.index, y=df['EMA20'], mode='lines', name="EMA 20",
+                        line=dict(color="#2ca02c", width=2, dash='dot')
+                    ))
+                    # Highlight up/down trends with markers
+                    fig.add_trace(go.Scatter(
+                        x=df.index, y=df[ticker],
+                        mode='markers',
+                        marker=dict(
+                            color=df['Uptrend'].map({True: "#2ecc40", False: "#ff4136"}),
+                            size=8,
+                            symbol=df['Uptrend'].map({True: "triangle-up", False: "triangle-down"})
+                        ),
+                        name="Trend",
+                        text=df['TrendIcon'],
+                        showlegend=False
+                    ))
+                    fig.update_layout(
+                        title=f"{ticker} Price with SMA/EMA and Trend Highlight",
+                        xaxis_title="Date",
+                        yaxis_title="Price",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+            elif chart_type == "Candlestick":
+                # For candlestick, need OHLC data
+                with st.spinner("Loading candlestick chart..."):
+                    time.sleep(1)
+                    hist = yf.Ticker(ticker).history(start=start_date, end=end_date)
+                    if not hist.empty and all(col in hist.columns for col in ["Open", "High", "Low", "Close"]):
+                        fig = go.Figure(data=[go.Candlestick(
+                            x=hist.index,
+                            open=hist["Open"],
+                            high=hist["High"],
+                            low=hist["Low"],
+                            close=hist["Close"],
+                            name=f"{ticker} Candlestick"
+                        )])
+                        fig.update_layout(
+                            title=f"{ticker} Candlestick Chart",
+                            xaxis_title="Date",
+                            yaxis_title="Price"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning(f"No OHLC data available for {ticker}.")
+
+            elif chart_type == "Area":
+                with st.spinner("Loading candlestick chart..."):
+                    time.sleep(1)
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=df.index, y=df[ticker], mode='lines', name=f"{ticker} Price",
+                        line=dict(color="#F28C3A", width=2),
+                        fill='tozeroy'
+                    ))
+                    fig.update_layout(
+                        title=f"{ticker} Area Chart",
+                        xaxis_title="Date",
+                        yaxis_title="Price"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         st.subheader("Bar Chart: Key Metrics")
@@ -250,14 +366,35 @@ def plot_graphs(data, summary, selected, start_date, end_date):
         st.bar_chart(drawdown_df)
 
     with tab5:
-        st.subheader("Sector Allocation (%)")
-        sector_data, _ = fetch_etf_metadata(selected, start_date, end_date)
-        show_sector_allocation(sector_data)
+        st.subheader("Sector Allocation Heatmap")
+        sector_df = pd.DataFrame(sector_data).fillna(0)
+        if not sector_df.empty:
+            fig = px.imshow(sector_df, color_continuous_scale='Oranges', aspect='auto')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Sector allocation data is not available for the selected tickers.")
 
     with tab6:
         st.subheader("Cumulative Returns (Growth of $1)")
         _, price_data = fetch_etf_metadata(selected, start_date, end_date)
         show_cumulative_returns(price_data)
+        
+    with tab7:
+        st.subheader("Latest News & Sentiment")
+        news_api_key = st.secrets["newsapi_key"] if "newsapi_key" in st.secrets else st.text_input("Enter your NewsAPI key:")
+        if news_api_key:
+            for ticker in selected:
+                st.markdown(f"### {ticker} News")
+                articles = fetch_news(ticker, news_api_key)
+                if not articles:
+                    st.write("No news found.")
+                for article in articles:
+                    sentiment = analyze_sentiment(article["title"] + " " + article["description"])
+                    sentiment_label = "🟢 Positive" if sentiment > 0.1 else "🔴 Negative" if sentiment < -0.1 else "🟡 Neutral"
+                    st.markdown(f"- [{article['title']}]({article['url']}) ({sentiment_label})")
+                    st.caption(f"{article['publishedAt']}")
+        else:
+            st.info("Please provide a NewsAPI key to see news headlines.")
         
 
 def load_custom_css():
@@ -297,6 +434,9 @@ def main():
     end_date = st.date_input("End date", value=date(2025, 6, 1))
 
     if st.button("Fetch & Compare"):
+        st.session_state['fetch_compare'] = True
+
+    if st.session_state.get('fetch_compare', False):
         with st.spinner("Loading data..."):
             ticker_list = tickers
             data = fetch_data(tickers, start_date, end_date, benchmark=benchmark)
@@ -354,7 +494,8 @@ def main():
                 )
                 selected = st.multiselect("Choose tickers to visualize", options=list(summary.index), default=list(summary.index))
                 if selected:
-                    plot_graphs(data, summary, selected, start_date, end_date)
+                    sector_data, _ = fetch_etf_metadata(selected, start_date, end_date)
+                    plot_graphs(data, summary, selected, start_date, end_date, sector_data)
                 else:
                     st.warning("Please select at least one ticker to visualize.")
             else:
