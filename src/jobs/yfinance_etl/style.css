@@ -1,0 +1,152 @@
+html {
+    font-size: 16px;
+}
+.stApp {
+    background-color: #fff !important;
+}
+.stHeader {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    font-size: 24px !important;
+    font-weight: bold !important;
+    text-align: center !important;
+    padding: 1em !important;
+}
+.stSidebar {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    font-size: 22px !important;
+    padding: 1em !important;
+}
+.stSidebar .stButton > button {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 0.5em 2em !important;
+    font-size: 22px !important;
+    font-weight: bold !important;
+    transition: background-color 0.2s;
+}
+.stSidebar .stButton > button:hover {
+    background-color: #cf7110 !important;
+    color: #fff !important;
+}
+.stSidebar .stTextInput input {
+    background-color: #fff !important;
+    color: #31333F !important;
+    border: 1px solid #F28C3A !important;
+    border-radius: 6px !important;
+    padding: 0.5em !important;
+    font-size: 22px !important;
+}
+.stSidebar .stTextInput input:focus {
+    border-color: #cf7110 !important;
+    box-shadow: 0 0 5px rgba(242, 140, 58, 0.5) !important;
+}
+.stSidebar .stTextInput label {
+    color: #F28C3A !important;
+    font-weight: bold !important;
+    font-size: 22px !important;
+}
+.stSidebar .stSelectbox select {
+    background-color: #fff !important;
+    color: #31333F !important;
+    border: 1px solid #F28C3A !important;
+    border-radius: 6px !important;
+    padding: 0.5em !important;
+    font-size: 18px !important;
+}
+.stSidebar .stSelectbox select:focus {
+    border-color: #cf7110 !important;
+    box-shadow: 0 0 5px rgba(242, 140, 58, 0.5) !important;
+}
+.stSidebar .stSelectbox label {
+    color: #F28C3A !important;
+    font-weight: bold !important;
+    font-size: 22px !important;
+}
+.stSidebar .stCheckbox label {
+    color: #F28C3A !important;
+    font-weight: bold !important;
+    font-size: 22px !important;
+}
+.stDataFrame, .stTable {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    color: #F28C3A !important;
+}
+.css-1v0mbdj, .css-1d391kg {
+    overflow-x: visible !important;
+}
+th {
+    background-color: #fff7ef !important;
+    color: #F28C3A !important;
+    font-size: 24px !important;
+    font-weight: bold !important;
+    text-align: center !important;
+}
+td {
+    text-align: center !important;
+    font-size: 22px !important;
+}
+[data-testid="stExpander"] > div {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    border-radius: 6px !important;
+    margin-bottom: 8px !important;
+    transition: background-color 0.2s;
+}
+[data-testid="stExpander"] > div:hover {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+}
+div.stButton > button:first-child {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 0.5em 2em !important;
+    font-size: 22px !important;
+    font-weight: bold !important;
+    transition: background-color 0.2s;
+}
+div.stButton > button:first-child:hover {
+    background-color: #cf7110 !important;
+    color: #fff !important;
+}
+label[for^="Choose tickers to visualize"] {
+    color: #F28C3A !important;
+    font-weight: bold !important;
+    font-size: 22px !important;
+}
+.stMultiSelect > div {
+    border-radius: 6px !important;
+}
+.stMultiSelect [data-baseweb="tag"] {
+    background-color: #F28C3A !important;
+    color: #fff !important;
+    border-radius: 4px !important;
+}
+.stDataFrame div[role="table"] {
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+}
+
+[data-testid="stTabs"] button[aria-selected="true"] {
+    color: #F28C3A !important;
+    border-bottom: 3px solid #F28C3A !important;
+    box-shadow: none !important;  
+}
+[data-testid="stTabs"] button:hover {
+    color: #F28C3A !important;
+    border-bottom: 3px solid #F28C3A !important;
+    box-shadow: none !important;
+}
+[data-testid="stTabs"] button,
+.st-e0, .st-e1, .st-e2, .st-e3 {
+    box-shadow: none !important;
+    border-bottom: none !important;
+}
