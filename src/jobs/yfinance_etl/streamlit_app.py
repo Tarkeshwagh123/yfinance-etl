@@ -420,104 +420,102 @@ def load_custom_css():
 
 
 def main():
-    if 'fetch_compare' not in st.session_state:
-        st.session_state['fetch_compare'] = False
-        load_custom_css()
-        logo = Image.open("logo.png")
-        st.image(logo, width=160)
-        st.markdown(
-            '<h1 style="font-size:2.0rem; color:#31333F; font-weight:bold; margin-bottom: 0.5em;">'
-            'Stocks Comparison Matrix & Analytics Dashboard'
-            '</h1>',
-            unsafe_allow_html=True
-        )
-        
-        benchmark = "^GSPC"
-        st.sidebar.header("Settings")
-        benchmark = st.sidebar.selectbox("Select Benchmark", options=["^GSPC", "^DJI", "^IXIC"], index=0)
+    load_custom_css()
+    logo = Image.open("logo.png")
+    st.image(logo, width=160)
+    st.markdown(
+        '<h1 style="font-size:2.0rem; color:#31333F; font-weight:bold; margin-bottom: 0.5em;">'
+        'Stocks Comparison Matrix & Analytics Dashboard'
+        '</h1>',
+        unsafe_allow_html=True
+    )
+    
+    benchmark = "^GSPC"
+    st.sidebar.header("Settings")
+    benchmark = st.sidebar.selectbox("Select Benchmark", options=["^GSPC", "^DJI", "^IXIC"], index=0)
 
-        st.sidebar.subheader("Instructions")
-        st.sidebar.markdown("""
-        1. Enter stock tickers in the input box, separated by commas (e.g., SPY, QQQ, VTI).
-        2. Select the start and end dates for the analysis.
-        3. Click on 'Fetch & Compare' to retrieve data and generate the comparison matrix.
-        4. Use the sidebar to select a benchmark for comparison.
-        """)
-        #st.sidebar.image("logo.png", width=180) 
+    st.sidebar.subheader("Instructions")
+    st.sidebar.markdown("""
+    1. Enter stock tickers in the input box, separated by commas (e.g., SPY, QQQ, VTI).
+    2. Select the start and end dates for the analysis.
+    3. Click on 'Fetch & Compare' to retrieve data and generate the comparison matrix.
+    4. Use the sidebar to select a benchmark for comparison.
+    """)
+    #st.sidebar.image("logo.png", width=180) 
 
-        #st.subheader("Input Parameters")
-        tickers_input = st.text_input("Enter stock tickers (comma separated):", value="SPY, QQQ, VTI, VOO")
-        tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-        start_date = st.date_input("Start date", value=date(2020, 1, 1))
-        end_date = st.date_input("End date", value=date(2025, 6, 1))
+    #st.subheader("Input Parameters")
+    tickers_input = st.text_input("Enter stock tickers (comma separated):", value="SPY, QQQ, VTI, VOO")
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    start_date = st.date_input("Start date", value=date(2020, 1, 1))
+    end_date = st.date_input("End date", value=date(2025, 6, 1))
 
-        if st.button("Fetch & Compare"):
-            st.session_state['fetch_compare'] = True
+    if st.button("Fetch & Compare"):
+        st.session_state['fetch_compare'] = True
 
-        if st.session_state.get('fetch_compare', False):
-            with st.spinner("Loading data..."):
-                ticker_list = tickers
-                data = fetch_data(tickers, start_date, end_date, benchmark=benchmark)
-                if not data.empty:
-                    st.subheader("Raw Price Data")
-                    st.dataframe(
-                        data.style.format("{:.2f}").set_properties(**{
-                            'background-color': '#fff',
-                            'color': '#F28C3A',
-                            'border-color': '#F28C3A',
-                            'font-size': '25px !important'
-                        }),
-                        use_container_width=True,
-                        hide_index=False
-                    )
-                    summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark)
-                    st.subheader("Comparison Matrix")
-                    st.markdown(
-                        """
-                        <style>
-                            .stDataFrame {
-                                font-size: 22px! important;
-                                background-color: #fff;
-                                color: #F28C3A;
-                                border: 1px solid #F28C3A;
-                                border-radius: 10px;
-                            }
-                        </style>
-                        """, unsafe_allow_html=True)
-                    # st.dataframe(summary.style.format("{:.2%}"))
-                    format_dict = {
-                        "Historical Return 1Y": "{:.2%}",
-                        "3Y return": "{:.2%}",
-                        "5Y return": "{:.2%}",
-                        "YTD return": "{:.2%}",
-                        "Standard Deviation (Volatility)": "{:.2%}",
-                        "Sharpe ratio (Risk Adjusted Return)": "{:.2f}",
-                        "Sortino Ratio": "{:.2f}",
-                        "Maximum drawdown": "{:.2%}",
-                        "Dividend Yield (%)": "{:.2f}",
-                        "Expense Ratio (%)":"{:.2f}" # not percent format
-                    }
-                    #st.subheader("Comparison Matrix")
-                    
-                    st.dataframe(
-                        summary.T.style.format(format_dict).set_properties(**{
-                            'background-color': '#fff',
-                            'color': '#F28C3A',
-                            'border-color': '#F28C3A',
-                            'font-size': '25px !important'
-                        }),
-                        use_container_width=True,
-                        hide_index=False,
-                        height=summary.T.shape[0]*35 + 45
-                    )
-                    selected = st.multiselect("Choose tickers to visualize", options=list(summary.index), default=list(summary.index))
-                    if selected:
-                        sector_data, _ = fetch_etf_metadata(selected, start_date, end_date)
-                        plot_graphs(data, summary, selected, start_date, end_date, sector_data)
-                    else:
-                        st.warning("Please select at least one ticker to visualize.")
+    if st.session_state.get('fetch_compare', False):
+        with st.spinner("Loading data..."):
+            ticker_list = tickers
+            data = fetch_data(tickers, start_date, end_date, benchmark=benchmark)
+            if not data.empty:
+                st.subheader("Raw Price Data")
+                st.dataframe(
+                    data.style.format("{:.2f}").set_properties(**{
+                        'background-color': '#fff',
+                        'color': '#F28C3A',
+                        'border-color': '#F28C3A',
+                        'font-size': '25px !important'
+                    }),
+                    use_container_width=True,
+                    hide_index=False
+                )
+                summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark)
+                st.subheader("Comparison Matrix")
+                st.markdown(
+                    """
+                    <style>
+                        .stDataFrame {
+                            font-size: 22px! important;
+                            background-color: #fff;
+                            color: #F28C3A;
+                            border: 1px solid #F28C3A;
+                            border-radius: 10px;
+                        }
+                    </style>
+                    """, unsafe_allow_html=True)
+                # st.dataframe(summary.style.format("{:.2%}"))
+                format_dict = {
+                    "Historical Return 1Y": "{:.2%}",
+                    "3Y return": "{:.2%}",
+                    "5Y return": "{:.2%}",
+                    "YTD return": "{:.2%}",
+                    "Standard Deviation (Volatility)": "{:.2%}",
+                    "Sharpe ratio (Risk Adjusted Return)": "{:.2f}",
+                    "Sortino Ratio": "{:.2f}",
+                    "Maximum drawdown": "{:.2%}",
+                    "Dividend Yield (%)": "{:.2f}",
+                    "Expense Ratio (%)":"{:.2f}" # not percent format
+                }
+                #st.subheader("Comparison Matrix")
+                
+                st.dataframe(
+                    summary.T.style.format(format_dict).set_properties(**{
+                        'background-color': '#fff',
+                        'color': '#F28C3A',
+                        'border-color': '#F28C3A',
+                        'font-size': '25px !important'
+                    }),
+                    use_container_width=True,
+                    hide_index=False,
+                    height=summary.T.shape[0]*35 + 45
+                )
+                selected = st.multiselect("Choose tickers to visualize", options=list(summary.index), default=list(summary.index))
+                if selected:
+                    sector_data, _ = fetch_etf_metadata(selected, start_date, end_date)
+                    plot_graphs(data, summary, selected, start_date, end_date, sector_data)
                 else:
-                    st.error("No data found for the provided tickers and date range. Please check your input.")                                                                                                      
+                    st.warning("Please select at least one ticker to visualize.")
+            else:
+                st.error("No data found for the provided tickers and date range. Please check your input.")                                                                                                      
 
 if __name__ == "__main__":
     main()
