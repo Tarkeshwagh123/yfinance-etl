@@ -9,7 +9,7 @@ html {
     color: #fff !important;
     font-size: 24px !important;
     font-weight: bold !important;
-    text-align: center !important;
+    text-align: right !important;
     padding: 1em !important;
 }
 .stSidebar {
@@ -86,10 +86,10 @@ th {
     color: #F28C3A !important;
     font-size: 24px !important;
     font-weight: bold !important;
-    text-align: center !important;
+    text-align: right !important;
 }
 td {
-    text-align: center !important;
+    text-align: right !important;
     font-size: 22px !important;
 }
 [data-testid="stExpander"] > div {

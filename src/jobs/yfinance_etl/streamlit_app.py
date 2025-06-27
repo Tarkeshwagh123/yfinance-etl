@@ -465,7 +465,8 @@ def main():
                         'background-color': '#fff',
                         'color': '#F28C3A',
                         'border-color': '#F28C3A',
-                        'font-size': '25px !important'
+                        'font-size': '25px !important',
+                        'text-align': 'right'
                     }),
                     use_container_width=True,
                     hide_index=False
@@ -481,6 +482,7 @@ def main():
                             color: #F28C3A;
                             border: 1px solid #F28C3A;
                             border-radius: 10px;
+                            text-align: right;
                         }
                     </style>
                     """, unsafe_allow_html=True)
