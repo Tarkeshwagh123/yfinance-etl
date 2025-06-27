@@ -420,6 +420,8 @@ def load_custom_css():
 
 
 def main():
+    if 'fetch_compare' not in st.session_state:
+        st.session_state['fetch_compare'] = False
     load_custom_css()
     logo = Image.open("logo.png")
     st.image(logo, width=160)
