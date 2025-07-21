@@ -12,80 +12,248 @@ import time
 import plotly.figure_factory as ff
 import requests
 from textblob import TextBlob
+import json
+import boto3
+from botocore.exceptions import ClientError
 
 from yfinance import tickers
 
-@st.cache_data(show_spinner=False)
-def fetch_data(tickers, start, end, benchmark="^GSPC"):
-    all_tickers = tickers + [benchmark]
-    df = yf.download(all_tickers, start=start, end=end, auto_adjust=True)
-    if isinstance(df.columns, pd.MultiIndex):
-        data = df['Close']
-    else:
-        data = df[['Close']]
-        data.columns = [all_tickers[0]]  
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-    return data
+# AWS Bedrock Configuration
+def initialize_bedrock_client():
+    """Initialize AWS Bedrock client"""
+    try:
+        bedrock_client = boto3.client(
+            'bedrock-runtime',
+            region_name='us-east-1',  # Change to your preferred region
+            aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]
+        )
+        return bedrock_client
+    except Exception as e:
+        st.error(f"Failed to initialize Bedrock client: {str(e)}")
+        return None
 
+def generate_ai_explanation(bedrock_client, metric_name, ticker, metric_value, comparison_data=None):
+    """Generate AI explanation for a specific metric using AWS Bedrock Llama"""
+    
+    prompts = {
+        "Historical Return 1Y": f"The fund {ticker} had a {metric_value:.1%} return over the past year. Explain in simple terms what this means for an investor. Is this performance good or bad?",
+        "Sharpe ratio (Risk Adjusted Return)": f"The fund {ticker} has a Sharpe ratio of {metric_value:.2f}. Explain what this number tells us about the fund's risk-adjusted performance.",
+        "Maximum drawdown": f"The fund {ticker} had a maximum drawdown of {metric_value:.1%}. Explain what this means and why investors should care.",
+        "Standard Deviation (Volatility)": f"The fund {ticker} has a volatility of {metric_value:.1%}. Explain what this tells us about the fund's risk level.",
+        "Dividend Yield (%)": f"The fund {ticker} has a dividend yield of {metric_value:.2f}%. Explain what this means for income-focused investors.",
+        "Expense Ratio (%)": f"The fund {ticker} has an expense ratio of {metric_value:.2f}%. Explain how this affects investor returns over time.",
+        "Beta": f"The fund {ticker} has a beta of {metric_value:.2f}. Explain what this tells us about how the fund moves relative to the market.",
+        "Alpha": f"The fund {ticker} has an alpha of {metric_value:.2%}. Explain what this indicates about the fund's performance versus its benchmark."
+    }
+    
+    base_prompt = prompts.get(metric_name, f"Explain the {metric_name} of {metric_value} for fund {ticker}.")
+    
+    full_prompt = f"{base_prompt} Keep your explanation simple and practical. Avoid technical jargon. Answer in 2-3 plain sentences without any formatting or special characters."
+    
+    request_body = {
+        "prompt": full_prompt,
+        "max_gen_len": 150,
+        "temperature": 0.2,
+        "top_p": 0.8
+    }
+    
+    try:
+        response = bedrock_client.invoke_model(
+            modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+            body=json.dumps(request_body),
+            contentType="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        explanation = response_body.get('generation', 'Unable to generate explanation.')
+        
+        # Clean up any unwanted formatting
+        explanation = explanation.replace('```', '').replace('#', '').replace('*', '')
+        explanation = explanation.replace('<', '').replace('>', '').replace('[', '').replace(']', '')
+        
+        return explanation.strip()
+        
+    except ClientError as e:
+        return f"Error generating explanation: {str(e)}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
 
-@st.cache_data(show_spinner=False)
-def fetch_etf_metadata(tickers, start_date, end_date, retries=2):
-    sector_data = {}
-    price_data = {}
+def generate_comparative_analysis(bedrock_client, summary_df, selected_tickers):
+    """Generate comparative analysis for selected funds"""
+    
+    comparison_text = "Fund Performance Data:\n"
+    for ticker in selected_tickers:
+        if ticker in summary_df.index:
+            return_val = float(summary_df.loc[ticker, 'Historical Return 1Y'])
+            volatility_val = float(summary_df.loc[ticker, 'Standard Deviation (Volatility)'])
+            sharpe_val = float(summary_df.loc[ticker, 'Sharpe ratio (Risk Adjusted Return)'])
+            expense_val = float(summary_df.loc[ticker, 'Expense Ratio (%)'])
+            
+            comparison_text += f"\n{ticker}:\n"
+            comparison_text += f"- Annual Return: {return_val:.1%}\n"
+            comparison_text += f"- Volatility: {volatility_val:.1%}\n"
+            comparison_text += f"- Sharpe Ratio: {sharpe_val:.2f}\n"
+            comparison_text += f"- Expense Ratio: {expense_val:.2f}%\n"
+    
+    prompt = f"""You are a financial advisor. Analyze these funds and provide clear investment insights.
 
-    for ticker in tickers:
-        etf = yf.Ticker(ticker)
-        # Retry logic for etf.info
-        for attempt in range(retries):
+{comparison_text}
+
+Answer these questions in plain text (no formatting, no HTML, no markdown. Do not display the questions to the user, as they need to see a comparative analysis of the funds.):
+
+1. Which fund has the best risk-adjusted returns (highest Sharpe ratio)?
+2. Which fund would you recommend for a conservative investor seeking lower volatility?
+3. Which fund offers the best value in terms of low fees?
+4. What is your overall recommendation?
+
+Provide a straightforward analysis that any investor can understand. Use simple sentences and avoid technical jargon. Use Paragraph breaks for better readability.
+Make sure the sentences are concise and to the point, without any unnecessary complexity or formatting. 
+Avoid any redundant information, for example "The funds are all exchange-traded funds (ETFs) that track various stock market indices. QQQ tracks the Nasdaq-100 Index, SPY, VOO, and ^GSPC track the S&P 500 Index, and VTI tracks the CRSP US Total Market Index."
+Do not end the response with an incomplete sentence and avoid repetitive information.
+"""
+    
+    request_body = {
+        "prompt": prompt,
+        "max_gen_len": 400,
+        "temperature": 0.2,
+        "top_p": 0.8
+    }
+    
+    try:
+        response = bedrock_client.invoke_model(
+            modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+            body=json.dumps(request_body),
+            contentType="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        analysis = response_body.get('generation', 'Unable to generate comparative analysis.')
+        
+        # Clean up the response to remove any unwanted formatting
+        analysis = analysis.replace('```', '').replace('#', '').replace('*', '')
+        analysis = analysis.replace('<', '').replace('>', '')
+        
+        return analysis.strip()
+        
+    except Exception as e:
+        return f"Error generating comparative analysis: {str(e)}"
+
+def display_ai_insights(bedrock_client, summary, selected_tickers):
+    """Display AI-generated insights for the comparison matrix"""
+    
+    st.subheader("🤖 AI-Generated Insights")
+    
+    insight_tabs = st.tabs(["📊 Metric Explanations", "🔍 Comparative Analysis", "💡 Investment Recommendations", "📰 News/Sentiment"])
+    
+    with insight_tabs[0]:
+        st.markdown("**Click on any metric to get AI explanation:**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_ticker = st.selectbox("Select Fund:", selected_tickers)
+            
+        with col2:
+            metrics_list = [
+                "Historical Return 1Y", "Sharpe ratio (Risk Adjusted Return)", 
+                "Maximum drawdown", "Standard Deviation (Volatility)",
+                "Dividend Yield (%)", "Expense Ratio (%)", "Beta", "Alpha"
+            ]
+            selected_metric = st.selectbox("Select Metric:", metrics_list)
+        
+        if st.button("Generate Explanation"):
+            if selected_ticker in summary.index:
+                metric_value = summary.loc[selected_ticker, selected_metric]
+                
+                with st.spinner("Generating AI explanation..."):
+                    explanation = generate_ai_explanation(
+                        bedrock_client, selected_metric, selected_ticker, metric_value
+                    )
+                
+                st.info(f"**{selected_metric} for {selected_ticker}:**\n\n{explanation}")
+    
+    with insight_tabs[1]:
+        st.markdown("**Comparative Analysis of Selected Funds:**")
+        
+        with st.spinner("Analyzing fund performance..."):
+            analysis = generate_comparative_analysis(bedrock_client, summary, selected_tickers)
+            
+        # st.success("**AI Comparative Analysis:**")
+        st.write(analysis)
+    
+    with insight_tabs[2]:
+        st.markdown("**Investment Recommendations:**")
+        
+        risk_tolerance = st.selectbox(
+            "What's your risk tolerance?",
+            ["Conservative", "Moderate", "Aggressive"]
+        )
+        
+        investment_goal = st.selectbox(
+            "What's your primary investment goal?",
+            ["Income Generation", "Capital Growth", "Balanced Growth", "Retirement Planning"]
+        )
+        
+        if st.button("Get AI Recommendation"):
+            # Generate personalized recommendation based on user profile
+            recommendation_prompt = f"""
+            Based on the following fund data and investor profile, provide a personalized recommendation:
+            
+            Investor Profile:
+            - Risk Tolerance: {risk_tolerance}
+            - Investment Goal: {investment_goal}
+            
+            Available Funds: {selected_tickers}
+            Fund Metrics: {summary.loc[selected_tickers].to_dict()}
+            
+            Provide a specific recommendation with reasoning.
+            """
+            
+            request_body = {
+                "prompt": recommendation_prompt,
+                "max_gen_len": 300,
+                "temperature": 0.3,
+                "top_p": 0.9
+            }
+            
             try:
-                sector_weights = etf.info.get('sectorWeightings', [])
-                break  # Success, exit retry loop
+                with st.spinner("Generating personalized recommendation..."):
+                    response = bedrock_client.invoke_model(
+                        modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+                        body=json.dumps(request_body),
+                        contentType="application/json"
+                    )
+                    
+                    response_body = json.loads(response['body'].read())
+                    recommendation = response_body.get('generation', 'Unable to generate recommendation.')
+                
+                st.success("**Personalized Investment Recommendation:**")
+                st.write(recommendation)
+                
             except Exception as e:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                else:
-                    sector_weights = []
-        sectors = {list(s.keys())[0]: list(s.values())[0] * 100 for s in sector_weights} if sector_weights else {}
-        sector_data[ticker] = sectors
+                st.error(f"Error generating recommendation: {str(e)}")
 
-        # Price data for returns
-        try:
-            hist = etf.history(start=start_date, end=end_date)['Close']
-            price_data[ticker] = hist
-        except Exception:
-            price_data[ticker] = pd.Series(dtype=float)
-
-    return sector_data, price_data
-
-
-def show_sector_allocation(sector_data):
-    sector_df = pd.DataFrame(sector_data).fillna(0)
-    if sector_df.empty or sector_df.sum().sum() == 0:
-        st.info("Sector allocation data is not available for the selected tickers.")
-    else:
-        st.bar_chart(sector_df)
-
-def show_cumulative_returns(price_data):
-    returns_df = pd.DataFrame(price_data).pct_change().dropna()
-    cumulative_returns = (1 + returns_df).cumprod()
-    st.line_chart(cumulative_returns)
-
-def show_holdings(holdings_data):
-    st.subheader("Top Holdings")
-    any_data = False
-    for ticker, holdings in holdings_data.items():
-        st.markdown(f"**{ticker} Top Holdings:**")
-        if holdings == "Not Available" or holdings == []:
-            st.write("Top holdings data is not available from Yahoo Finance for this ETF.")
+    with insight_tabs[3]:
+        st.subheader("Latest News & Sentiment")
+        news_api_key = st.secrets["newsapi_key"] if "newsapi_key" in st.secrets else st.text_input("Enter your NewsAPI key:")
+        if news_api_key:
+            for ticker in selected_tickers:
+                st.markdown(f"### {ticker} News")
+                articles = fetch_news(ticker, news_api_key)
+                if not articles:
+                    st.write("No news found.")
+                for article in articles:
+                    sentiment = analyze_sentiment(article["title"] + " " + article["description"])
+                    sentiment_label = "🟢 Positive" if sentiment > 0.1 else "🔴 Negative" if sentiment < -0.1 else "🟡 Neutral"
+                    st.markdown(f"- [{article['title']}]({article['url']}) ({sentiment_label})")
+                    st.caption(f"{article['publishedAt']}")
         else:
-            any_data = True
-            st.write(pd.DataFrame(holdings))
-    if not any_data:
-        st.info("Top holdings data is not available for the selected tickers. This is a limitation of Yahoo Finance/yfinance.")
+            st.info("Please provide a NewsAPI key to see news headlines.")
 
-
-def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
+def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC", bedrock_client=None):
+    """Enhanced version of calculate_metrics with AI explanations"""
+    
     global dividends
     returns = data.pct_change().dropna()
     historical_return = returns.mean() * 252
@@ -121,27 +289,24 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
 
     dividend_yields = {}
     ticker_objs = {ticker: yf.Ticker(ticker) for ticker in tickers}
-    # start_date = pd.to_datetime(start_date).tz_localize(None)
-    # end_date = pd.to_datetime(end_date).tz_localize(None)
+    
     for ticker in tickers:
         etf = ticker_objs[ticker]
-        #print(etf.info.keys())
-        # Get historical dividends
         dividends = etf.dividends
         if isinstance(dividends.index, pd.DatetimeIndex):
             dividends.index = dividends.index.tz_localize(None)
             dividends = dividends.loc[start_date:end_date]
         else:
-            dividends = pd.Series(dtype=float)  # Empty series if no dividends
+            dividends = pd.Series(dtype=float)
         valid_dividends = dividends[dividends.index.isin(data.index)]
         valid_prices = data[ticker][data.index.isin(dividends.index)]
 
-        # Calculate annual dividend and yield
         total_dividend = valid_dividends.sum()
         latest_price = data[ticker].iloc[-1]
         dividend_yield = (total_dividend / latest_price) * 100
         dividend_yields[ticker] = dividend_yield
 
+    expense_ratio = 0
     for ticker in tickers:
         fund = yf.Ticker(ticker)
         expense_ratio = fund.info.get("expenseRatio", 0)
@@ -159,8 +324,8 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
         return_5y = (data.iloc[-1] / data.iloc[-five_years]) - 1
     else:
         return_5y = np.nan
-		
-	#alpha, beta, r^2
+        
+    # Alpha, beta, r^2
     benchmark_ticker = 'SPY'
     benchmark_data = fetch_data([benchmark_ticker], data.index[0], data.index[-1])
     benchmark_returns = benchmark_data.pct_change().dropna()
@@ -180,8 +345,6 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
         betas[col] = model.params[1]
         r_squareds[col] = model.rsquared
 
-
-        
     summary = pd.DataFrame({
         "Historical Return 1Y": historical_return,
         "3Y return": return_3y,
@@ -194,11 +357,54 @@ def calculate_metrics(data, tickers, start_date, end_date, benchmark="^GSPC"):
         "Dividend Yield (%)": dividend_yields,
         "Expense Ratio (%)": expense_ratio,
         "Tracking Error (%)": pd.Series(tracking_errors) * 100,
-		"Alpha": pd.Series(alphas),
+        "Alpha": pd.Series(alphas),
         "Beta": pd.Series(betas),
         "R-squared": pd.Series(r_squareds)
     })
+    
     return summary
+
+@st.cache_data(show_spinner=False)
+def fetch_data(tickers, start, end, benchmark="^GSPC"):
+    all_tickers = tickers + [benchmark]
+    df = yf.download(all_tickers, start=start, end=end, auto_adjust=True)
+    if isinstance(df.columns, pd.MultiIndex):
+        data = df['Close']
+    else:
+        data = df[['Close']]
+        data.columns = [all_tickers[0]]  
+    if isinstance(data, pd.Series):
+        data = data.to_frame()
+    return data
+
+@st.cache_data(show_spinner=False)
+def fetch_etf_metadata(tickers, start_date, end_date, retries=2):
+    sector_data = {}
+    price_data = {}
+
+    for ticker in tickers:
+        etf = yf.Ticker(ticker)
+        # Retry logic for etf.info
+        for attempt in range(retries):
+            try:
+                sector_weights = etf.info.get('sectorWeightings', [])
+                break  # Success, exit retry loop
+            except Exception as e:
+                if attempt < retries - 1:
+                    time.sleep(2)
+                else:
+                    sector_weights = []
+        sectors = {list(s.keys())[0]: list(s.values())[0] * 100 for s in sector_weights} if sector_weights else {}
+        sector_data[ticker] = sectors
+
+        # Price data for returns
+        try:
+            hist = etf.history(start=start_date, end=end_date)['Close']
+            price_data[ticker] = hist
+        except Exception:
+            price_data[ticker] = pd.Series(dtype=float)
+
+    return sector_data, price_data
 
 def fetch_news(ticker, api_key, max_articles=5):
     url = f"https://newsapi.org/v2/everything?q={ticker}&sortBy=publishedAt&language=en&apiKey={api_key}"
@@ -235,15 +441,19 @@ def search_stocks(query):
     except Exception:
         return []
 
+def show_cumulative_returns(price_data):
+    returns_df = pd.DataFrame(price_data).pct_change().dropna()
+    cumulative_returns = (1 + returns_df).cumprod()
+    st.line_chart(cumulative_returns)
+
 def plot_graphs(data, summary, selected, start_date, end_date, sector_data):
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Price", 
         "📊 Metrics", 
         "⚖️ Risk/Return", 
         "📉 Drawdown", 
         "🏢 Sectors", 
-        "💹 Returns", 
-        "📰 News/Sentiment"
+        "💹 Returns"
     ])
 
     with tab1:
@@ -394,40 +604,25 @@ def plot_graphs(data, summary, selected, start_date, end_date, sector_data):
         st.subheader("Cumulative Returns (Growth of $1)")
         _, price_data = fetch_etf_metadata(selected, start_date, end_date)
         show_cumulative_returns(price_data)
-        
-    with tab7:
-        st.subheader("Latest News & Sentiment")
-        news_api_key = st.secrets["newsapi_key"] if "newsapi_key" in st.secrets else st.text_input("Enter your NewsAPI key:")
-        if news_api_key:
-            for ticker in selected:
-                st.markdown(f"### {ticker} News")
-                articles = fetch_news(ticker, news_api_key)
-                if not articles:
-                    st.write("No news found.")
-                for article in articles:
-                    sentiment = analyze_sentiment(article["title"] + " " + article["description"])
-                    sentiment_label = "🟢 Positive" if sentiment > 0.1 else "🔴 Negative" if sentiment < -0.1 else "🟡 Neutral"
-                    st.markdown(f"- [{article['title']}]({article['url']}) ({sentiment_label})")
-                    st.caption(f"{article['publishedAt']}")
-        else:
-            st.info("Please provide a NewsAPI key to see news headlines.")
-        
 
 def load_custom_css():
     css_path = os.path.join(os.path.dirname(__file__), "style.css")
     with open(css_path) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-
 def main():
     if 'fetch_compare' not in st.session_state:
         st.session_state['fetch_compare'] = False
+        
+    # Initialize Bedrock client
+    bedrock_client = initialize_bedrock_client()
+    
     load_custom_css()
     logo = Image.open("logo.png")
     st.image(logo, width=160)
     st.markdown(
         '<h1 style="font-size:2.0rem; color:#31333F; font-weight:bold; margin-bottom: 0.5em;">'
-        'Stocks Comparison Matrix & Analytics Dashboard'
+        'AI-Enhanced Fund Comparison Matrix & Analytics Dashboard'
         '</h1>',
         unsafe_allow_html=True
     )
@@ -441,11 +636,9 @@ def main():
     1. Enter stock tickers in the input box, separated by commas (e.g., SPY, QQQ, VTI).
     2. Select the start and end dates for the analysis.
     3. Click on 'Fetch & Compare' to retrieve data and generate the comparison matrix.
-    4. Use the sidebar to select a benchmark for comparison.
+    4. Use the AI Insights section to get detailed explanations and recommendations.
     """)
-    #st.sidebar.image("logo.png", width=180) 
 
-    #st.subheader("Input Parameters")
     tickers_input = st.text_input("Enter stock tickers (comma separated):", value="SPY, QQQ, VTI, VOO")
     tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     start_date = st.date_input("Start date", value=date(2020, 1, 1))
@@ -458,21 +651,20 @@ def main():
         with st.spinner("Loading data..."):
             ticker_list = tickers
             data = fetch_data(tickers, start_date, end_date, benchmark=benchmark)
+            
             if not data.empty:
-                # st.subheader("Raw Price Data")
-                # st.dataframe(
-                #     data.style.format("{:.2f}").set_properties(**{
-                #         'background-color': '#fff',
-                #         'color': '#F28C3A',
-                #         'border-color': '#F28C3A',
-                #         'font-size': '25px !important',
-                #         'text-align': 'right'
-                #     }),
-                #     use_container_width=True,
-                #     hide_index=False
-                # )
-                summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark)
-                st.subheader("Comparison Matrix")
+                summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark, bedrock_client=bedrock_client)
+                
+                all_tickers = list(summary.index)
+                
+                if bedrock_client:
+                    display_ai_insights(bedrock_client, summary, all_tickers)
+                else:
+                    st.warning("AWS Bedrock client not available. Please check your AWS credentials.")
+                
+                st.markdown("---")
+                
+                st.subheader("📊 Detailed Comparison Matrix")
                 st.markdown(
                     """
                     <style>
@@ -486,7 +678,7 @@ def main():
                         }
                     </style>
                     """, unsafe_allow_html=True)
-                # st.dataframe(summary.style.format("{:.2%}"))
+                
                 format_dict = {
                     "Historical Return 1Y": "{:.2%}",
                     "3Y return": "{:.2%}",
@@ -497,9 +689,8 @@ def main():
                     "Sortino Ratio": "{:.2f}",
                     "Maximum drawdown": "{:.2%}",
                     "Dividend Yield (%)": "{:.2f}",
-                    "Expense Ratio (%)":"{:.2f}" # not percent format
+                    "Expense Ratio (%)": "{:.2f}"
                 }
-                #st.subheader("Comparison Matrix")
                 
                 st.dataframe(
                     summary.T.style.format(format_dict).set_properties(**{
@@ -512,14 +703,19 @@ def main():
                     hide_index=False,
                     height=summary.T.shape[0]*35 + 45
                 )
+                
+                st.markdown("---")
+                
+                st.subheader("📈 Interactive Charts & Analysis")
                 selected = st.multiselect("Choose tickers to visualize", options=list(summary.index), default=list(summary.index))
+                
                 if selected:
                     sector_data, _ = fetch_etf_metadata(selected, start_date, end_date)
                     plot_graphs(data, summary, selected, start_date, end_date, sector_data)
                 else:
                     st.warning("Please select at least one ticker to visualize.")
             else:
-                st.error("No data found for the provided tickers and date range. Please check your input.")                                                                                                      
+                st.error("No data found for the provided tickers and date range. Please check your input.")
 
 if __name__ == "__main__":
     main()
