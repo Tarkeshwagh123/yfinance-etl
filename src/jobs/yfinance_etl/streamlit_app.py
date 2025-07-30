@@ -12,9 +12,270 @@ import time
 import plotly.figure_factory as ff
 import requests
 from textblob import TextBlob
-
+import boto3
+import json
+from botocore.exceptions import ClientError
 from yfinance import tickers
 from pdf_rag_chatbot import run_pdf_rag_chatbot
+
+def initialize_bedrock_client():
+    """Initialize AWS Bedrock client"""
+    try:
+        bedrock_client = boto3.client(
+            'bedrock-runtime',
+            region_name='us-east-1',  # Change to your preferred region
+            aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]
+        )
+        return bedrock_client
+    except Exception as e:
+        st.error(f"Failed to initialize Bedrock client: {str(e)}")
+        return None
+
+def generate_ai_explanation(bedrock_client, metric_name, ticker, metric_value, comparison_data=None):
+    """Generate AI explanation for a specific metric using AWS Bedrock Llama"""
+    
+    prompts = {
+        "Historical Return 1Y": f"The fund {ticker} had a {metric_value:.1%} return over the past year. Explain in simple terms what this means for an investor. Is this performance good or bad?",
+        "Sharpe ratio (Risk Adjusted Return)": f"The fund {ticker} has a Sharpe ratio of {metric_value:.2f}. Explain what this number tells us about the fund's risk-adjusted performance.",
+        "Maximum drawdown": f"The fund {ticker} had a maximum drawdown of {metric_value:.1%}. Explain what this means and why investors should care.",
+        "Standard Deviation (Volatility)": f"The fund {ticker} has a volatility of {metric_value:.1%}. Explain what this tells us about the fund's risk level.",
+        "Dividend Yield (%)": f"The fund {ticker} has a dividend yield of {metric_value:.2f}%. Explain what this means for income-focused investors.",
+        "Expense Ratio (%)": f"The fund {ticker} has an expense ratio of {metric_value:.2f}%. Explain how this affects investor returns over time.",
+        "Beta": f"The fund {ticker} has a beta of {metric_value:.2f}. Explain what this tells us about how the fund moves relative to the market.",
+        "Alpha": f"The fund {ticker} has an alpha of {metric_value:.2%}. Explain what this indicates about the fund's performance versus its benchmark."
+    }
+    
+    base_prompt = prompts.get(metric_name, f"Explain the {metric_name} of {metric_value} for fund {ticker}.")
+    
+    full_prompt = f"{base_prompt} Keep your explanation simple and practical. Avoid technical jargon. Answer in 2-3 plain sentences without any formatting or special characters."
+    
+    request_body = {
+        "prompt": full_prompt,
+        "max_gen_len": 150,
+        "temperature": 0.2,
+        "top_p": 0.8
+    }
+    
+    try:
+        response = bedrock_client.invoke_model(
+            modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+            body=json.dumps(request_body),
+            contentType="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        explanation = response_body.get('generation', 'Unable to generate explanation.')
+        
+        # Clean up any unwanted formatting
+        explanation = explanation.replace('```', '').replace('#', '').replace('*', '')
+        explanation = explanation.replace('<', '').replace('>', '').replace('[', '').replace(']', '')
+        
+        return explanation.strip()
+        
+    except ClientError as e:
+        return f"Error generating explanation: {str(e)}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+def generate_comparative_analysis(bedrock_client, summary_df, selected_tickers):
+    """Generate comparative analysis for selected funds"""
+    
+    comparison_text = "Fund Performance Data:\n"
+    for ticker in selected_tickers:
+        if ticker in summary_df.index:
+            return_val = float(summary_df.loc[ticker, 'Historical Return 1Y'])
+            volatility_val = float(summary_df.loc[ticker, 'Standard Deviation (Volatility)'])
+            sharpe_val = float(summary_df.loc[ticker, 'Sharpe ratio (Risk Adjusted Return)'])
+            expense_val = float(summary_df.loc[ticker, 'Expense Ratio (%)'])
+            
+            comparison_text += f"\n{ticker}:\n"
+            comparison_text += f"- Annual Return: {return_val:.1%}\n"
+            comparison_text += f"- Volatility: {volatility_val:.1%}\n"
+            comparison_text += f"- Sharpe Ratio: {sharpe_val:.2f}\n"
+            comparison_text += f"- Expense Ratio: {expense_val:.2f}%\n"
+    
+    prompt = f"""You are a financial advisor. Analyze these funds and provide clear investment insights.
+
+{comparison_text}
+
+Answer these questions in plain text in 3-4 sentences (no formatting, no HTML, no markdown. Do not display the questions to the user, as they need to see a comparative analysis of the funds.):
+
+1. Which fund has the best risk-adjusted returns (highest Sharpe ratio)?
+2. Which fund would you recommend for a conservative investor seeking lower volatility?
+3. Which fund offers the best value in terms of low fees?
+4. What is your overall recommendation?
+
+Keep it concise and conversational. Do not repeat information or add unnecessary details.
+Provide a straightforward analysis that any investor can understand. Use simple sentences and avoid technical jargon. Use Paragraph breaks for better readability.
+Make sure the sentences are concise and to the point, without any unnecessary complexity or formatting. 
+Avoid any redundant information, for example "The funds are all exchange-traded funds (ETFs) that track various stock market indices. QQQ tracks the Nasdaq-100 Index, SPY, VOO, and ^GSPC track the S&P 500 Index, and VTI tracks the CRSP US Total Market Index."
+"""
+    
+    request_body = {
+        "prompt": prompt,
+        "max_gen_len": 200,
+        "temperature": 0.1,
+        "top_p": 0.7
+    }
+    
+    try:
+        response = bedrock_client.invoke_model(
+            modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+            body=json.dumps(request_body),
+            contentType="application/json"
+        )
+        
+        response_body = json.loads(response['body'].read())
+        analysis = response_body.get('generation', 'Unable to generate comparative analysis.')
+        
+        # Clean up the response to remove any unwanted formatting
+        analysis = analysis.replace('```', '').replace('#', '').replace('*', '')
+        analysis = analysis.replace('<', '').replace('>', '')
+        
+        return analysis.strip()
+        
+    except Exception as e:
+        return f"Error generating comparative analysis: {str(e)}"
+
+def display_ai_insights(bedrock_client, summary, selected_tickers):
+    """Display AI-generated insights for the comparison matrix"""
+    
+    st.subheader("🤖 AI-Generated Insights")
+    
+    insight_tabs = st.tabs(["📊 Metric Explanations", "🔍 Comparative Analysis", "💡 Investment Recommendations", "📰 News/Sentiment"])
+    
+    with insight_tabs[0]:
+        st.markdown("**Click on any metric to get AI explanation:**")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_ticker = st.selectbox("Select Fund:", selected_tickers)
+            
+        with col2:
+            metrics_list = [
+                "Historical Return 1Y", "Sharpe ratio (Risk Adjusted Return)", 
+                "Maximum drawdown", "Standard Deviation (Volatility)",
+                "Dividend Yield (%)", "Expense Ratio (%)", "Beta", "Alpha"
+            ]
+            selected_metric = st.selectbox("Select Metric:", metrics_list)
+        
+        if st.button("Generate Explanation"):
+            if selected_ticker in summary.index:
+                metric_value = summary.loc[selected_ticker, selected_metric]
+                
+                with st.spinner("Generating AI explanation..."):
+                    explanation = generate_ai_explanation(
+                        bedrock_client, selected_metric, selected_ticker, metric_value
+                    )
+                
+                st.info(f"**{selected_metric} for {selected_ticker}:**\n\n{explanation}")
+    
+    with insight_tabs[1]:
+        st.markdown("**Comparative Analysis of Selected Funds:**")
+        
+        with st.spinner("Analyzing fund performance..."):
+            analysis = generate_comparative_analysis(bedrock_client, summary, selected_tickers)
+            
+        st.write(analysis)
+    
+    with insight_tabs[2]:
+        st.markdown("**Investment Recommendations:**")
+        
+        risk_tolerance = st.selectbox(
+            "What's your risk tolerance?",
+            ["Conservative", "Moderate", "Aggressive"]
+        )
+        
+        investment_goal = st.selectbox(
+            "What's your primary investment goal?",
+            ["Income Generation", "Capital Growth", "Balanced Growth", "Retirement Planning"]
+        )
+        
+        if st.button("Get AI Recommendation"):
+            # Generate personalized recommendation based on user profile
+            fund_summary = "Fund Performance Summary:\n"
+            for ticker in selected_tickers:
+                if ticker in summary.index:
+                    return_val = float(summary.loc[ticker, 'Historical Return 1Y'])
+                    volatility_val = float(summary.loc[ticker, 'Standard Deviation (Volatility)'])
+                    sharpe_val = float(summary.loc[ticker, 'Sharpe ratio (Risk Adjusted Return)'])
+                    expense_val = float(summary.loc[ticker, 'Expense Ratio (%)'])
+                    dividend_val = float(summary.loc[ticker, 'Dividend Yield (%)'])
+                    
+                    fund_summary += f"\n{ticker}:\n"
+                    fund_summary += f"- Annual Return: {return_val:.1%}\n"
+                    fund_summary += f"- Volatility: {volatility_val:.1%}\n"
+                    fund_summary += f"- Sharpe Ratio: {sharpe_val:.2f}\n"
+                    fund_summary += f"- Expense Ratio: {expense_val:.2f}%\n"
+                    fund_summary += f"- Dividend Yield: {dividend_val:.2f}%\n"
+
+            # recommendation_prompt = f"""
+            # You are a friendly financial advisor talking directly to a client. Based on the fund data and investor profile below, give a conversational recommendation.
+
+            # {fund_summary}
+
+            # Client Profile:
+            # - Risk Tolerance: {risk_tolerance}
+            # - Investment Goal: {investment_goal}
+
+            # Write a direct recommendation as if you're speaking to the client. Start with something like "Based on your conservative approach and focus on income generation, I recommend..." 
+
+            # Do not use bullet points, numbered lists, code blocks, or step-by-step analysis. Write in complete paragraphs as natural conversation. Do not include any technical formatting, code syntax, function definitions, or analytical frameworks. Just give a straightforward, friendly recommendation in 2-3 sentences about which fund(s) to choose and why.
+
+            # """
+            recommendation_prompt = f"""You are giving investment advice to a friend over coffee. They have {risk_tolerance.lower()} risk tolerance and want {investment_goal.lower()}.
+
+            Here are the fund options:
+            {fund_summary}
+
+            Tell them which fund to pick and why in one simple paragraph. Start your response immediately with your recommendation. Do not write any code, functions, or technical formatting.
+
+            Example: "I would recommend SPY because..."
+
+            Your advice:"""
+
+            
+            request_body = {
+                "prompt": recommendation_prompt,
+                "max_gen_len": 300,
+                "temperature": 0.2,
+                "top_p": 0.8
+            }
+            
+            try:
+                with st.spinner("Generating personalized recommendation..."):
+                    response = bedrock_client.invoke_model(
+                        modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+                        body=json.dumps(request_body),
+                        contentType="application/json"
+                    )
+                    
+                    response_body = json.loads(response['body'].read())
+                    recommendation = response_body.get('generation', 'Unable to generate recommendation.')
+                
+                st.success("**Personalized Investment Recommendation:**")
+                st.write(recommendation)
+                
+            except Exception as e:
+                st.error(f"Error generating recommendation: {str(e)}")
+    with insight_tabs[3]:
+        st.subheader("Latest News & Sentiment")
+        news_api_key = st.secrets["newsapi_key"] if "newsapi_key" in st.secrets else st.text_input("Enter your NewsAPI key:")
+        if news_api_key:
+            for ticker in selected_tickers:
+                st.markdown(f"### {ticker} News")
+                articles = fetch_news(ticker, news_api_key)
+                if not articles:
+                    st.write("No news found.")
+                for article in articles:
+                    sentiment = analyze_sentiment(article["title"] + " " + article["description"])
+                    sentiment_label = "🟢 Positive" if sentiment > 0.1 else "🔴 Negative" if sentiment < -0.1 else "🟡 Neutral"
+                    st.markdown(f"- [{article['title']}]({article['url']}) ({sentiment_label})")
+                    st.caption(f"{article['publishedAt']}")
+        else:
+            st.info("Please provide a NewsAPI key to see news headlines.")
 
 @st.cache_data(show_spinner=False)
 def fetch_data(tickers, start, end, benchmark="^GSPC"):
@@ -237,14 +498,13 @@ def search_stocks(query):
         return []
 
 def plot_graphs(data, summary, selected, start_date, end_date, sector_data):
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Price", 
         "📊 Metrics", 
         "⚖️ Risk/Return", 
         "📉 Drawdown", 
         "🏢 Sectors", 
-        "💹 Returns", 
-        "📰 News/Sentiment"
+        "💹 Returns"
     ])
 
     with tab1:
@@ -396,23 +656,6 @@ def plot_graphs(data, summary, selected, start_date, end_date, sector_data):
         _, price_data = fetch_etf_metadata(selected, start_date, end_date)
         show_cumulative_returns(price_data)
         
-    with tab7:
-        st.subheader("Latest News & Sentiment")
-        news_api_key = st.secrets["newsapi_key"] if "newsapi_key" in st.secrets else st.text_input("Enter your NewsAPI key:")
-        if news_api_key:
-            for ticker in selected:
-                st.markdown(f"### {ticker} News")
-                articles = fetch_news(ticker, news_api_key)
-                if not articles:
-                    st.write("No news found.")
-                for article in articles:
-                    sentiment = analyze_sentiment(article["title"] + " " + article["description"])
-                    sentiment_label = "🟢 Positive" if sentiment > 0.1 else "🔴 Negative" if sentiment < -0.1 else "🟡 Neutral"
-                    st.markdown(f"- [{article['title']}]({article['url']}) ({sentiment_label})")
-                    st.caption(f"{article['publishedAt']}")
-        else:
-            st.info("Please provide a NewsAPI key to see news headlines.")
-        
 
 def load_custom_css():
     css_path = os.path.join(os.path.dirname(__file__), "style.css")
@@ -509,6 +752,7 @@ def load_custom_css():
 
 
 def main():
+    bedrock_client = initialize_bedrock_client()
     if 'fetch_compare' not in st.session_state:
         st.session_state['fetch_compare'] = False
     load_custom_css()
@@ -578,19 +822,14 @@ def main():
             ticker_list = tickers
             data = fetch_data(tickers, start_date, end_date, benchmark=benchmark)
             if not data.empty:
-                # st.subheader("Raw Price Data")
-                # st.dataframe(
-                #     data.style.format("{:.2f}").set_properties(**{
-                #         'background-color': '#fff',
-                #         'color': '#F28C3A',
-                #         'border-color': '#F28C3A',
-                #         'font-size': '25px !important',
-                #         'text-align': 'right'
-                #     }),
-                #     use_container_width=True,
-                #     hide_index=False
-                # )
                 summary = calculate_metrics(data, tickers, start_date, end_date, benchmark=benchmark)
+                all_tickers = list(summary.index)
+                if bedrock_client:
+                    display_ai_insights(bedrock_client, summary, all_tickers)
+                    st.markdown("---")
+                else:
+                    st.warning("AWS Bedrock client not available. Please check your AWS credentials in Streamlit secrets.")
+
                 st.subheader("Comparison Matrix")
                 st.markdown(
                     """
@@ -605,7 +844,6 @@ def main():
                         }
                     </style>
                     """, unsafe_allow_html=True)
-                # st.dataframe(summary.style.format("{:.2%}"))
                 format_dict = {
                     "Historical Return 1Y": "{:.2%}",
                     "3Y return": "{:.2%}",
@@ -616,7 +854,7 @@ def main():
                     "Sortino Ratio": "{:.2f}",
                     "Maximum drawdown": "{:.2%}",
                     "Dividend Yield (%)": "{:.2f}",
-                    "Expense Ratio (%)":"{:.2f}" # not percent format
+                    "Expense Ratio (%)":"{:.2f}"
                 }
                 #st.subheader("Comparison Matrix")
                 
