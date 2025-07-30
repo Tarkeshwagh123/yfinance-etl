@@ -3,7 +3,8 @@ import pdfplumber
 from langchain.embeddings import FastEmbedEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.llms import Bedrock
+from langchain_community.vectorstores import FAISS
+from langchain_aws import BedrockLLM 
 from langchain.chains import RetrievalQA
 import boto3
 from langchain.prompts import PromptTemplate
@@ -61,9 +62,9 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
             
             # Set up LLM with Bedrock (with fallback to OpenAI if needed)
             try:
-                llm = Bedrock(
-                    model_id="meta.llama3-70b-instruct-v1:0",
-                    client=boto3.client("bedrock-runtime", region_name="ap-south-1"),
+                llm = BedrockLLM(
+                    model_id="meta.llama4-maverick-17b-instruct-v1:0",
+                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                     model_kwargs={"temperature": 0.3, "top_p": 0.9}
                 )
             except Exception:
@@ -222,9 +223,9 @@ def run_pdf_rag_chatbot(mode='full'):
 
                             # 4. Set up LLM (with fallback)
                             try:
-                                llm = Bedrock(
+                                llm = BedrockLLM(
                                     model_id="meta.llama3-70b-instruct-v1:0",
-                                    client=boto3.client("bedrock-runtime", region_name="ap-south-1"),
+                                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                                     model_kwargs={"temperature": 0.5, "top_p": 0.9}
                                 )
                             except Exception:
