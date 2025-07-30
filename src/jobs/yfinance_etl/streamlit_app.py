@@ -231,8 +231,7 @@ def display_ai_insights(bedrock_client, summary, selected_tickers):
             {fund_summary}
 
             Tell them which fund to pick and why in one simple paragraph. Start your response immediately with your recommendation. Do not write any code, functions, or technical formatting.
-
-            Example: "I would recommend SPY because..."
+           Example: "I would recommend SPY because..."
 
             Your advice:"""
 
