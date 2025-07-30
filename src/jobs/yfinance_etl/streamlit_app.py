@@ -14,6 +14,7 @@ import requests
 from textblob import TextBlob
 
 from yfinance import tickers
+from pdf_rag_chatbot import run_pdf_rag_chatbot
 
 @st.cache_data(show_spinner=False)
 def fetch_data(tickers, start, end, benchmark="^GSPC"):
@@ -417,6 +418,94 @@ def load_custom_css():
     css_path = os.path.join(os.path.dirname(__file__), "style.css")
     with open(css_path) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    
+    # Add these custom styles for the sidebar
+    st.markdown("""
+    <style>
+    /* Set sidebar width and remove scrollbar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(to bottom, #f5f7f9, #e8edf2);
+        border-right: 1px solid #dfe5eb;
+        box-shadow: 2px 0px 5px rgba(0,0,0,0.05);
+        min-width: 320px !important;
+        width: 320px !important;
+    }
+    
+    /* Hide sidebar scrollbar but maintain functionality */
+    [data-testid="stSidebar"] > div:first-child {
+        overflow-y: auto;
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none;  /* IE and Edge */
+    }
+    
+    /* Hide scrollbar for Chrome, Safari and Opera */
+    [data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {
+        display: none;
+    }
+    
+    /* Sidebar header styling */
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3 {
+        color: #31333F;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #dfe5eb;
+        padding-bottom: 0.5rem;
+        font-weight: 600;
+    }
+    
+    /* Sidebar text styling */
+    [data-testid="stSidebar"] .stMarkdown p {
+        color: #4a5568;
+        line-height: 1.6;
+        margin-bottom: 0.8rem;
+    }
+    
+    /* Dropdown styling */
+    [data-testid="stSidebar"] .stSelectbox > div > div {
+        border-radius: 6px;
+        border: 1px solid #dfe5eb;
+        background-color: white;
+        transition: border 0.2s;
+    }
+    
+    [data-testid="stSidebar"] .stSelectbox > div > div:hover {
+        border: 1px solid #F28C3A;
+    }
+    
+    /* Button styling */
+    [data-testid="stSidebar"] .stButton > button {
+        border-radius: 6px;
+        background-color: #F28C3A;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        width: 100%;
+        transition: background-color 0.2s;
+    }
+    
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #e07c2a;
+    }
+    
+    /* Numbered list styling in sidebar */
+    [data-testid="stSidebar"] ol {
+        padding-left: 1.2rem;
+        color: #4a5568;
+    }
+    
+    [data-testid="stSidebar"] li {
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Add some padding to sidebar content */
+    [data-testid="stSidebarContent"] {
+        padding: 0.5rem 1rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def main():
@@ -444,16 +533,46 @@ def main():
     4. Use the sidebar to select a benchmark for comparison.
     """)
     #st.sidebar.image("logo.png", width=180) 
-
+    run_pdf_rag_chatbot(mode='button')
     #st.subheader("Input Parameters")
     tickers_input = st.text_input("Enter stock tickers (comma separated):", value="SPY, QQQ, VTI, VOO")
     tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     start_date = st.date_input("Start date", value=date(2020, 1, 1))
     end_date = st.date_input("End date", value=date(2025, 6, 1))
-
-    if st.button("Fetch & Compare"):
-        st.session_state['fetch_compare'] = True
-
+    
+    st.markdown("""
+    <style>
+    /* make each column a flex container centered on its items */
+    div.stColumns > div {
+        display: flex !important;
+        align-items: center !important;
+        margin-top: -30px !important;
+    }
+    /* shrink the horizontal gap between those two columns */
+    div.stColumns {
+        gap: 0.5rem !important;
+        margin-top: -30px !important;
+    }
+    /* remove default button margins and normalize height */
+    div.stButton > button {
+        margin-top: -30px !important;
+        height: 2.5rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    # show Fetch & Compare and chat icon side by side
+    # col1, col2 = st.columns([5, 9], gap="small")
+    # with col1:
+    #     if st.button("Fetch & Compare"):
+    #         st.session_state['fetch_compare'] = True
+    # with col2:
+    #     run_pdf_rag_chatbot()
+    col1, col2 = st.columns([5, 9], gap="small")
+    with col1:
+        if st.button("Fetch & Compare"):
+            st.session_state['fetch_compare'] = True
+    with col2:
+        run_pdf_rag_chatbot(mode='popover')
     if st.session_state.get('fetch_compare', False):
         with st.spinner("Loading data..."):
             ticker_list = tickers
