@@ -63,7 +63,7 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
             # Set up LLM with Bedrock (with fallback to OpenAI if needed)
             try:
                 llm = BedrockLLM(
-                    model_id="meta.llama3-3-70b-instruct-v1:0",
+                    model_id="meta.llama4-maverick-17b-instruct-v1:0",
                     client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                     model_kwargs={"temperature": 0.3, "top_p": 0.9}
                 )
@@ -71,7 +71,7 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
                 from langchain_community.llms import OpenAI
                 llm = OpenAI(temperature=0.3)
             
-            # Get answers to summary questions by querying with the retriever
+            # Get answers to summary questions by querying with retriever
             summary_parts = []
             for question in summary_questions:
                 try:
@@ -221,10 +221,10 @@ def run_pdf_rag_chatbot(mode='full'):
                             embedder = FastEmbedEmbeddings()
                             db = FAISS.from_documents(docs, embedder)
 
-                            # 4. Set up LLM (with fallback)
+                            # 4. Set up LLM
                             try:
                                 llm = BedrockLLM(
-                                    model_id="meta.llama3-3-70b-instruct-v1:0",
+                                    model_id="meta.llama4-maverick-17b-instruct-v1:0",
                                     client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                                     model_kwargs={"temperature": 0.5, "top_p": 0.9}
                                 )
