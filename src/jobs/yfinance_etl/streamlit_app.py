@@ -59,7 +59,7 @@ def generate_ai_explanation(bedrock_client, metric_name, ticker, metric_value, c
     
     try:
         response = bedrock_client.invoke_model(
-            modelId="us.meta.llama4-maverick-17b-instruct-v1:0",
+            modelId="meta.llama4-maverick-17b-instruct-v1:0",
             body=json.dumps(request_body),
             contentType="application/json"
         )
