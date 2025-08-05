@@ -63,7 +63,7 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
             # Set up LLM with Bedrock (with fallback to OpenAI if needed)
             try:
                 llm = BedrockLLM(
-                    model_id="meta.llama3-3-70b-instruct-v1:0",
+                    model_id="us.meta.llama3-3-70b-instruct-v1:0",
                     client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                     model_kwargs={"temperature": 0.3, "top_p": 0.9}
                 )
@@ -224,7 +224,7 @@ def run_pdf_rag_chatbot(mode='full'):
                             # 4. Set up LLM
                             try:
                                 llm = BedrockLLM(
-                                    model_id="meta.llama3-3-70b-instruct-v1:0",
+                                    model_id="us.meta.llama3-3-70b-instruct-v1:0",
                                     client=boto3.client("bedrock-runtime", region_name="us-east-1"),
                                     model_kwargs={"temperature": 0.5, "top_p": 0.9}
                                 )
