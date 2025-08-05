@@ -59,7 +59,7 @@ def generate_ai_explanation(bedrock_client, metric_name, ticker, metric_value, c
     
     try:
         response = bedrock_client.invoke_model(
-            modelId="amazon.titan-text-premier-v1:0",
+            modelId="meta.llama3-3-70b-instruct-v1:0",
             body=json.dumps(request_body),
             contentType="application/json"
         )
@@ -121,7 +121,7 @@ Avoid any redundant information, for example "The funds are all exchange-traded 
     
     try:
         response = bedrock_client.invoke_model(
-            modelId="amazon.titan-text-premier-v1:0",
+            modelId="meta.llama3-3-70b-instruct-v1:0",
             body=json.dumps(request_body),
             contentType="application/json"
         )
@@ -247,7 +247,7 @@ def display_ai_insights(bedrock_client, summary, selected_tickers):
             try:
                 with st.spinner("Generating personalized recommendation..."):
                     response = bedrock_client.invoke_model(
-                        modelId="amazon.titan-text-premier-v1:0",
+                        modelId="meta.llama3-3-70b-instruct-v1:0",
                         body=json.dumps(request_body),
                         contentType="application/json"
                     )
