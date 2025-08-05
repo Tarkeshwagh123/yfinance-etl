@@ -64,7 +64,8 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
             try:
                 llm = BedrockLLM(
                     model_id="us.meta.llama3-3-70b-instruct-v1:0",
-                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
+                    client=boto3.client("bedrock-runtime", region_name="us-east-1",aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]),
                     model_kwargs={"temperature": 0.3, "top_p": 0.9}
                 )
             except Exception:
@@ -225,7 +226,8 @@ def run_pdf_rag_chatbot(mode='full'):
                             try:
                                 llm = BedrockLLM(
                                     model_id="us.meta.llama3-3-70b-instruct-v1:0",
-                                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
+                                    client=boto3.client("bedrock-runtime", region_name="us-east-1",aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]),
                                     model_kwargs={"temperature": 0.5, "top_p": 0.9}
                                 )
                             except Exception:
