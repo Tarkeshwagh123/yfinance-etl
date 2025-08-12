@@ -1,8 +1,7 @@
 import streamlit as st
 import pdfplumber
-# from langchain.embeddings import FastEmbedEmbeddings
-# from langchain.vectorstores import FAISS
 from langchain_community.embeddings import FastEmbedEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_aws import BedrockLLM 
@@ -64,15 +63,16 @@ def generate_pdf_summary(text: str, qa_chain=None) -> str:
             # Set up LLM with Bedrock (with fallback to OpenAI if needed)
             try:
                 llm = BedrockLLM(
-                    model_id="meta.llama3-3-70b-instruct-v1:0",
-                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
+                    model_id="us.meta.llama3-3-70b-instruct-v1:0",
+                    client=boto3.client("bedrock-runtime", region_name="us-east-1",aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]),
                     model_kwargs={"temperature": 0.3, "top_p": 0.9}
                 )
             except Exception:
                 from langchain_community.llms import OpenAI
                 llm = OpenAI(temperature=0.3)
             
-            # Get answers to summary questions by querying with the retriever
+            # Get answers to summary questions by querying with retriever
             summary_parts = []
             for question in summary_questions:
                 try:
@@ -222,11 +222,12 @@ def run_pdf_rag_chatbot(mode='full'):
                             embedder = FastEmbedEmbeddings()
                             db = FAISS.from_documents(docs, embedder)
 
-                            # 4. Set up LLM (with fallback)
+                            # 4. Set up LLM
                             try:
                                 llm = BedrockLLM(
-                                    model_id="meta.llama3-3-70b-instruct-v1:0",
-                                    client=boto3.client("bedrock-runtime", region_name="us-east-1"),
+                                    model_id="us.meta.llama3-3-70b-instruct-v1:0",
+                                    client=boto3.client("bedrock-runtime", region_name="us-east-1",aws_access_key_id=st.secrets["aws_access_key_id"],
+            aws_secret_access_key=st.secrets["aws_secret_access_key"]),
                                     model_kwargs={"temperature": 0.5, "top_p": 0.9}
                                 )
                             except Exception:
